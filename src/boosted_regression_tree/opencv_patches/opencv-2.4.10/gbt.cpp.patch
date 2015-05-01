@@ -1,0 +1,79 @@
+# Patch file for OpenCV 2.4.10 to add the probability mapping method
+# opencv-2.4.10/modules/ml/src
+--- gbt.cpp	2014-10-01 02:33:36.000000000 -0500
++++ gbt_new.cpp	2015-03-26 09:07:26.286220318 -0500
+@@ -51,6 +51,7 @@
+     use_surrogates = _use_surrogates;
+ }
+ 
++
+ //===========================================================================
+ //------------------------------- CvGBTrees ---------------------------------
+ //===========================================================================
+@@ -1018,6 +1019,51 @@
+     }
+ 
+ 
++// Developed to predict the probability mappings for the input sample, and
++// the probability that it is of class k.  This was borrowed from predict,
++// which simply predicts whether this sample is a particular class.
++// Gail Schmidt, USGS EROS
++float CvGBTrees::predict_prob( const CvMat* _sample, int k,
++            const CvMat* _missing, CvSlice slice) const
++    {
++        float exp_sum = 0.0f;
++        float result = 0.0f;
++        if (!weak) return 0.0f;
++        float* sum = new float[class_count];
++        for (int i=0; i<class_count; ++i)
++            sum[i] = 0.0f;
++        int begin = slice.start_index;
++        int end = begin + cvSliceLength( slice, weak[0] );
++
++        pCvSeq* weak_seq = weak;
++        Tree_predictor predictor = Tree_predictor(weak_seq, class_count,
++            params.shrinkage, _sample, _missing, sum);
++
++        cv::parallel_for_(cv::Range(begin, end), predictor);
++
++        for (int i=0; i<class_count; ++i)
++            sum[i] = sum[i] /** params.shrinkage*/ + base_value;
++
++        if (class_count == 1)
++        {
++            result = sum[0];
++            delete[] sum;
++            return result;
++        }
++
++        if ((k>=0) && (k<class_count))
++        {
++            for (int i=0; i<class_count; ++i)
++                exp_sum += exp(sum[i]);
++            result = exp(sum[k]) / exp_sum;
++            delete[] sum;
++            return result;
++        }
++        else
++            return 0.0f;
++    }
++
++
+ //===========================================================================
+ 
+ void CvGBTrees::write_params( CvFileStorage* fs ) const
+@@ -1379,3 +1425,14 @@
+     return predict(&_sample, _missing.empty() ? 0 : &miss, 0,
+                    slice==cv::Range::all() ? CV_WHOLE_SEQ : cvSlice(slice.start, slice.end), k);
+ }
++
++// Developed to predict the probability mappings for the input sample, and
++// the probability that it is of class k.
++// Gail Schmidt, USGS EROS
++float CvGBTrees::predict_prob( const cv::Mat& sample, int k,
++      const cv::Mat& _missing, const cv::Range& slice ) const
++{
++    CvMat _sample = sample, miss = _missing;
++    return predict_prob(&_sample, k, _missing.empty() ? 0 : &miss, 
++                   slice==cv::Range::all() ? CV_WHOLE_SEQ : cvSlice(slice.start, slice.end));
++}
