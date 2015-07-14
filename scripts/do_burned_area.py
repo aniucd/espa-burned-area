@@ -182,7 +182,8 @@ class BurnedArea():
 
 
     def runBurnedArea(self, sr_list_file=None, input_dir=None,  \
-        output_dir=None, model_dir=None, num_processors=1, logfile=None):
+        output_dir=None, model_dir=None, num_processors=1, logfile=None,
+        delete_src=None):
         """Runs the burned area processing from end-to-end for a given
            stack of surface reflectance products.
         Description: Reads the XML list file to determine the path/row and
@@ -208,6 +209,10 @@ class BurnedArea():
             Updated to support the exclude_rmse and exclude_cloud_cover
             options in processStack. These are turned on for the call to
             process seasonal summaries and annual maximums.
+          Updated on 7/9/2015 by Gail Schmidt, USGS/EROS LSRD Project
+              Added --delete_src argument.  If specified then the original
+              source scenes will be removed after each has been resampled to
+              the maximum geographic extents.
 
         Args:
           sr_list_file - input file listing the surface reflectance scenes
@@ -224,6 +229,8 @@ class BurnedArea():
               processing sections of the application
           logfile - name of the logfile for logging information; if None then
               the output will be written to stdout
+          delete_src - if set to true then the source scenes will be deleted
+              after being resampled to the maximum geographic extents
         
         Returns:
             ERROR - error running the burned area applications
@@ -273,10 +280,17 @@ class BurnedArea():
                     '(default = 1, single threaded)')
             parser.add_argument ('-l', '--logfile', type=str, dest='logfile',
                 help='name of optional log file', metavar='FILE')
+            parser.add_argument ('--delete_src',
+                dest='delete_src', default=False, action='store_true',
+                help='if True, the source files will be deleted after each '
+                     'scene has been resampled to the maximum geographic '
+                     'extents. The MTL and XML file will remain for downstream '
+                     'processing.')
 
             options = parser.parse_args()
 
             # validate command-line options and arguments
+            delete_src = options.delete_src
             logfile = options.logfile
             sr_list_file = options.sr_list_file
             if sr_list_file is None:
@@ -302,8 +316,6 @@ class BurnedArea():
             # number of processors
             if options.num_processors is not None:
                 num_processors = options.num_processors
-        else:
-            num_processors = num_processors
 
         # open the log file if it exists; use line buffering for the output
         self.log_handler = None
@@ -421,7 +433,8 @@ class BurnedArea():
         msg = '\nProcessing seasonal summaries and annual maximums ...'
         status = temporalBAStack().processStack(input_dir=input_dir,  \
             exclude_l1g=True, exclude_rmse=True, exclude_cloud_cover=True,  \
-            logfile=logfile, num_processors=num_processors)
+            logfile=logfile, num_processors=num_processors,
+            delete_src=delete_src)
         if status != SUCCESS:
             msg = 'Error running seasonal summaries and annual maximums'
             logIt (msg, self.log_handler)

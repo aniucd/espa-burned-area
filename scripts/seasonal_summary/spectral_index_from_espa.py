@@ -22,6 +22,8 @@ from log_it import *
 #       entire band) since this is faster.
 #   Updated on 3/17/2014 by Gail Schmidt, USGS/EROS LSRD Project
 #       Modified to use the ESPA internal raw binary format
+#   Updated on 7/8/2015 by Gail Schmidt, USGS/EROS LSRD Project
+#       Thermal band is not used in burned area processing.
 #
 ############################################################################
 class spectralIndex:
@@ -34,7 +36,6 @@ class spectralIndex:
     dataset3 = None
     dataset4 = None
     dataset5 = None
-    dataset6 = None
     dataset7 = None 
     dataset_mask = None             # QA mask created from QA bands
 
@@ -44,7 +45,6 @@ class spectralIndex:
     band3 = None
     band4 = None
     band5 = None
-    band6 = None
     band7 = None
     band_mask = None                # QA mask created from QA bands
 
@@ -102,12 +102,6 @@ class spectralIndex:
             logIt (msg, log_handler)
             return None
 
-        self.dataset6 = gdal.Open(band_dict['band6'])
-        if self.dataset6 is None:
-            msg = 'GDAL could not open input file: ' + band_dict['band6']
-            logIt (msg, log_handler)
-            return None
-
         self.dataset7 = gdal.Open(band_dict['band7'])
         if self.dataset7 is None:
             msg = 'GDAL could not open input file: ' + band_dict['band7']
@@ -127,7 +121,6 @@ class spectralIndex:
         self.band3 = self.dataset3.GetRasterBand(1)
         self.band4 = self.dataset4.GetRasterBand(1)
         self.band5 = self.dataset5.GetRasterBand(1)
-        self.band6 = self.dataset6.GetRasterBand(1)
         self.band7 = self.dataset7.GetRasterBand(1)
         self.band_mask = self.dataset_mask.GetRasterBand(1)
 
@@ -150,10 +143,6 @@ class spectralIndex:
             return None
         if self.band5 is None:
             msg = 'Input band5 connection failed'
-            logIt (msg, log_handler)
-            return None
-        if self.band6 is None:
-            msg = 'Input band6 connection failed'
             logIt (msg, log_handler)
             return None
         if self.band7 is None:
@@ -186,7 +175,6 @@ class spectralIndex:
         self.band3 = None
         self.band4 = None
         self.band5 = None
-        self.band6 = None
         self.band7 = None
         self.band_mask = None
 
@@ -195,7 +183,6 @@ class spectralIndex:
         self.dataset3 = None
         self.dataset4 = None
         self.dataset5 = None
-        self.dataset6 = None
         self.dataset7 = None
         self.dataset_mask = None
 

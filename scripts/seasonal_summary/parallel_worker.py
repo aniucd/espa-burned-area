@@ -63,18 +63,21 @@ class parallelSummaryWorker(multiprocessing.Process):
         while not self.kill_received:
             # get a task
             try:
-                year = self.work_queue.get_nowait()
+                year_season = self.work_queue.get_nowait()
             except Queue.Empty:
                 break
  
             # process the scene
-            msg = 'Processing year %d ...' % year
+            year = int (year_season[0])
+            season = year_season[1]
+            msg = 'Processing year %d, season %s ...' % (year, season)
             logIt (msg, self.stackObject.log_handler)
             status = SUCCESS
-            status = self.stackObject.generateYearSeasonalSummaries (year)
+            status = self.stackObject.generateYearSeasonalSummaries (year,
+                season)
             if status != SUCCESS:
-                msg = 'Error processing seasonal summaries for year %d. '  \
-                    'Processing will terminate.' % year
+                msg = 'Error processing seasonal summaries for year %d, ' \
+                    'season %s. Processing will terminate.' % (year, season)
                 logIt (msg, self.stackObject.log_handler)
  
             # store the result

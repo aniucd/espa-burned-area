@@ -93,6 +93,9 @@ def convert_imageXY_to_mapXY (image_x, image_y, transform):
 # Turned into a class to run the overall annual burn summaries.
 #
 # History:
+#   Updated on 7/9/2015 by Gail Schmimdt, USGS/EROS LSRD Project
+#       Updated the radiance and reflectance info for the output bands in the
+#       XML product
 #
 # Usage: do_annual_burn_summaries.py --help prints the help message
 ############################################################################
@@ -344,7 +347,8 @@ class AnnualBurnSummary():
                     '%Y-%m-%dT%H:%M:%S'))
 
                 # clear some of the band-specific fields that don't apply for
-                # this product
+                # this product (see metadata_api.py for the full list of
+                # band-related values under class band)
                 del (myband.source)
                 myband.set_source(None)
                 del (myband.saturate_value)
@@ -353,8 +357,12 @@ class AnnualBurnSummary():
                 myband.set_scale_factor(None)
                 del (myband.add_offset)
                 myband.set_add_offset(None)
-                del (myband.toa_reflectance)
-                myband.set_toa_reflectance(None)
+                del (myband.radiance)
+                myband.set_radiance(None)
+                del (myband.reflectance)
+                myband.set_reflectance(None)
+                del (myband.thermal_const)
+                myband.set_thermal_const(None)
                 del (myband.bitmap_description)
                 myband.set_bitmap_description(None)
                 del (myband.class_values)

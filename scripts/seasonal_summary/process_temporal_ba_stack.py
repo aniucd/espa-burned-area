@@ -57,6 +57,7 @@ class temporalBAStack():
     nbr2_dir = "None"         # NBR2 data directory
     mask_dir = "None"         # QA mask data directory
     spatial_extent = None     # dictionary for spatial extent corners
+    delete_src = None         # should original scenes be deleted
     log_handler = None        # file handler for the log file
     num_processors = 1        # default is no parallel processing
     csv_data = None           # CSV data for the stack
@@ -465,6 +466,8 @@ class temporalBAStack():
               Make the histograms and overviews optional.
           Updated on 3/17/2014 by Gail Schmidt, USGS/EROS LSRD Project
               Modified to use the ESPA raw binary internal file format.
+          Updated on 7/8/2015 by Gail Schmidt, USGS/EROS LSRD Project
+              Thermal band is not used in burned area processing.
         
         Args:
           bounding_extents_file - name of file which contains the bounding
@@ -574,7 +577,8 @@ class temporalBAStack():
         Description: sceneResample will resample the suface reflectance bands
             in the XML file to the bounding extents.  It then creates a single
             QA band from the surface reflectance QA bands.  Finally it computes
-            the spectral indices for the scene.
+            the spectral indices for the scene.  The original scenes are
+            deleted, if specified, after each band is successfully resampled.
         
         History:
           Created in 2013 by Jodi Riegle and Todd Hawbaker, USGS Rocky Mountain
@@ -583,6 +587,8 @@ class temporalBAStack():
               Modified to allow for multiprocessing at the scene level.
           Updated on 3/17/2014 by Gail Schmidt, USGS/EROS LSRD Project
               Modified to use the ESPA internal raw binary format
+          Updated on 7/9/2015 by Gail Schmidt, USGS/EROS LSRD Project
+              Modified to clean up the original scenes if delete_src is true
         
         Args:
           xml_file - name of XML file to process
@@ -609,8 +615,8 @@ class temporalBAStack():
         # and place in the reflectance directory; QA file goes in the mask
         # directory
         resamp_band_dict = {}
-        for i in ['band1', 'band2', 'band3', 'band4', 'band5', 'band6',  \
-            'band7', 'band_qa']:
+        for i in ['band1', 'band2', 'band3', 'band4', 'band5', 'band7',  \
+            'band_qa']:
             if i == 'band_qa':
                 resamp_band_dict[i] = self.mask_dir + \
                     os.path.basename (xmlAttr.band_dict[i])
@@ -628,6 +634,34 @@ class temporalBAStack():
             msg = '    ' + cmd
             logIt (msg, self.log_handler)
             os.system(cmd)
+
+        # if specified then remove the original scene data after succesfully
+        # resampling the needed bands.  leave the MTL and XML file for
+        # downstream processing.
+        if self.delete_src:
+            # delete the original SR bands
+            globnames = os.path.basename (xml_file.replace ('.xml', '*_sr_*'))
+            filelist = glob.glob (globnames)
+            for myfile in filelist:
+                os.remove(myfile)
+
+            # delete the original cfmask bands and the generated QA mask
+            globnames = os.path.basename (xml_file.replace ('.xml', '*_*mask*'))
+            filelist = glob.glob (globnames)
+            for myfile in filelist:
+                os.remove(myfile)
+
+            # delete the original VER products
+            globnames = os.path.basename (xml_file.replace ('.xml', '*_VER*'))
+            filelist = glob.glob (globnames)
+            for myfile in filelist:
+                os.remove(myfile)
+
+            # delete the original GCP products
+            globnames = os.path.basename (xml_file.replace ('.xml', '*_GCP*'))
+            filelist = glob.glob (globnames)
+            for myfile in filelist:
+                os.remove(myfile)
 
         # calculate ndvi, ndmi, nbr, nbr2 from the resampled files
         msg = '   Calculating spectral indices...'
@@ -738,11 +772,15 @@ class temporalBAStack():
         self.nodata = enviMask.NoData
         enviMask = None
 
-        # load up the work queue for processing yearly summaries in parallel
+        # load up the work queue for processing yearly summaries in parallel.
+        # push each season of each year to a separate CPU.
         work_queue = multiprocessing.Queue()
         num_years = end_year - start_year + 1
+
         for year in range (start_year, end_year+1):
-            work_queue.put(year)
+            for season in ['winter', 'spring', 'summer', 'fall']:
+                print "Pushing %d, %s to the queue" % (year, season)
+                work_queue.put([year, season])
 
         # create a queue to pass to workers to store the processing status
         result_queue = multiprocessing.Queue()
@@ -758,12 +796,13 @@ class temporalBAStack():
  
         # collect the results off the queue
         for i in range(num_years):
-            status = result_queue.get()
-            if status != SUCCESS:
-                msg = 'Error processing seasonal summaries for year %d' %  \
-                    start_year + i
-                logIt (msg, self.log_handler)
-                return ERROR
+            for season in ['winter', 'spring', 'summer', 'fall']:
+                status = result_queue.get()
+                if status != SUCCESS:
+                    msg = 'Error processing seasonal summaries for year %d ' \
+                        'and season %s' % (start_year + i, season)
+                    logIt (msg, self.log_handler)
+                    return ERROR
 
         endTime = time.time()
         msg = 'Processing time = %f seconds' % (endTime-startTime)
@@ -772,11 +811,11 @@ class temporalBAStack():
         return SUCCESS
 
 
-    def generateYearSeasonalSummaries (self, year):
-        """Generates the seasonal summaries for the specified year.
+    def generateYearSeasonalSummaries (self, year, season):
+        """Generates the seasonal summaries for the specified year and season.
         Description: generateYearSeasonalSummaries will generate the seasonal
-        summaries for the current year.  If a log file was specified then the
-        output from each application will be logged to that file.
+        summaries for the current year and seaons.  If a log file was specified
+        then the output from each application will be logged to that file.
         
         History:
           Updated on 5/22/2013 by Gail Schmidt, USGS/EROS LSRD Project
@@ -787,12 +826,18 @@ class temporalBAStack():
               any valid inputs for the current season/year.
           Updated on 3/24/2014 by Gail Schmidt, USGS/EROS LSRD Project
               Modified to utilize the ESPA internal raw binary format
+          Updated on 7/13/2015 by Gail Schmidt, USGS/EROS LSRD Project
+              Modified to push each season for each year to a separate CPU to
+              better support processing 2-year stacks of data. This makes
+              better usage of the CPUs vs. just using 2 CPUs, one for each
+              year and waiting for each to process all four seasons.
 
         Args:
           year - year to process the seasonal summaries
+          season - season to process the seasonal summaries
         
         Returns:
-            ERROR - error generating the seasonal summaries for this year
+            ERROR - error generating the seasonal summaries for this year/season
             SUCCESS - successful processing
         
         Notes:
@@ -806,233 +851,230 @@ class temporalBAStack():
           3. Good count is the number of 'lloks' with no QA flag set
         """
 
-        # loop through seasons
+        # determine which scenes apply to the current season in the
+        # current year
         last_year = year - 1
-        for season in ['winter', 'spring', 'summer', 'fall']:
-            # determine which scenes apply to the current season in the
-            # current year
-            if season == 'winter':
-                season_files =  \
-                    ((self.csv_data['year'] == last_year) &  \
-                     (self.csv_data['month'] == 12)) |  \
-                    ((self.csv_data['year'] == year) &  \
-                    ((self.csv_data['month'] == 1) |    \
-                     (self.csv_data['month'] == 2)))
-            elif season == 'spring':
-                season_files = (self.csv_data['year'] == year) &  \
-                    ((self.csv_data['month'] >= 3) &   \
-                     (self.csv_data['month'] <= 5))
-            elif season == 'summer':
-                season_files = (self.csv_data['year'] == year) &  \
-                    ((self.csv_data['month'] >= 6) &   \
-                     (self.csv_data['month'] <= 8))
-            elif season=='fall':
-                season_files = (self.csv_data['year'] == year) &  \
-                    ((self.csv_data['month'] >= 9) &   \
-                     (self.csv_data['month'] <= 11))
+        if season == 'winter':
+            season_files =  \
+                ((self.csv_data['year'] == last_year) &  \
+                 (self.csv_data['month'] == 12)) |  \
+                ((self.csv_data['year'] == year) &  \
+                ((self.csv_data['month'] == 1) |    \
+                 (self.csv_data['month'] == 2)))
+        elif season == 'spring':
+            season_files = (self.csv_data['year'] == year) &  \
+                ((self.csv_data['month'] >= 3) &   \
+                 (self.csv_data['month'] <= 5))
+        elif season == 'summer':
+            season_files = (self.csv_data['year'] == year) &  \
+                ((self.csv_data['month'] >= 6) &   \
+                 (self.csv_data['month'] <= 8))
+        elif season=='fall':
+            season_files = (self.csv_data['year'] == year) &  \
+                ((self.csv_data['month'] >= 9) &   \
+                 (self.csv_data['month'] <= 11))
  
-            # how many scenes do we have for the current year and season?
-            # if there aren't any files to process then write out a
-            # product with fill
-            n_files = sum (season_files)
-            msg = '  season = %s,  file count = %d' % (season, n_files)
-            logIt (msg, self.log_handler)
+        # how many scenes do we have for the current year and season?
+        # if there aren't any files to process then write out a
+        # product with fill
+        n_files = sum (season_files)
+        msg = '  season = %s,  file count = %d' % (season, n_files)
+        logIt (msg, self.log_handler)
  
-            # pull the files for this year and season
-            files = self.csv_data['file_'][season_files]
-            
-            # create the mask datasets -- stack of nrow x ncols
-            mask_data = zeros((n_files, self.nrow, self.ncol), dtype=int16)
+        # pull the files for this year and season
+        files = self.csv_data['file_'][season_files]
+        
+        # create the mask datasets -- stack of nrow x ncols
+        mask_data = zeros((n_files, self.nrow, self.ncol), dtype=int16)
 
-            # loop through the current set of files, open the mask files,
-            # and stack them up in a 3D array
-            for i in range(0, n_files):
-                temp = files[i]
-                base_file = os.path.basename(temp.replace('.xml', '_mask.img'))
-                mask_file = '%s%s' % (self.mask_dir, base_file)
-                mask_dataset = gdal.Open (mask_file, gdalconst.GA_ReadOnly)
-                if mask_dataset is None:
-                    msg = 'Could not open mask file: ' + mask_file
-                    logIt (msg, self.log_handler)
-                    return ERROR
-                mask_band = mask_dataset.GetRasterBand(1)
-                mask_data[i,:,:] = mask_band.ReadAsArray()
-                mask_band = None
-                mask_dataset = None
-            
-            # which voxels in the mask have good qa values?
-            mask_data_good = mask_data >= 0
-            mask_data_bad = mask_data < 0
-            mask_data = None
-            
-            # summarize the number of good pixels in the stack for each
-            # line/sample; if there aren't any files for this year and
-            # season then just fill with zeros; write data as a byte
-            # since there won't be enough total files to go past 256
-            msg = '    Generating %d %s good looks using %d '  \
-                'files ...' % (year, season, n_files)
-            logIt (msg, self.log_handler)
-            if n_files > 0:
-                good_looks = apply_over_axes(sum, mask_data_good,  \
-                    axes=[0])[0,:,:]
-            else:
-                good_looks = zeros((self.nrow, self.ncol), dtype=uint8)
-            
-            # save the good looks output to an ENVI file
-            good_looks_file = self.mask_dir + str(year) + '_' + season +  \
-                '_good_count.img'
-            
-            # write the good looks count to an output ENVI file as a
-            # byte product.  the noData value for this set will be 0 vs.
-            # the traditional nodata value of -9999, since we are working
-            # with a byte product.
-            driver = gdal.GetDriverByName('ENVI')
-            driver.Create (good_looks_file, self.ncol, self.nrow, 1,  \
-                gdalconst.GDT_Byte)
-            good_looks_dataset = gdal.Open (good_looks_file,  \
-                gdalconst.GA_Update)
-            if good_looks_dataset is None:
-                msg = 'Could not create output file: ' + good_looks_file
+        # loop through the current set of files, open the mask files,
+        # and stack them up in a 3D array
+        for i in range(0, n_files):
+            temp = files[i]
+            base_file = os.path.basename(temp.replace('.xml', '_mask.img'))
+            mask_file = '%s%s' % (self.mask_dir, base_file)
+            mask_dataset = gdal.Open (mask_file, gdalconst.GA_ReadOnly)
+            if mask_dataset is None:
+                msg = 'Could not open mask file: ' + mask_file
                 logIt (msg, self.log_handler)
                 return ERROR
-            
-            good_looks_dataset.SetGeoTransform(self.geotrans)
-            good_looks_dataset.SetProjection(self.prj)
-            
-            good_looks_band1 = good_looks_dataset.GetRasterBand(1)
-            good_looks_band1.SetNoDataValue(0)
-            good_looks_band1.WriteArray(good_looks)
-            
-            good_looks_band1 = None
-            good_looks_dataset = None
+            mask_band = mask_dataset.GetRasterBand(1)
+            mask_data[i,:,:] = mask_band.ReadAsArray()
+            mask_band = None
+            mask_dataset = None
+        
+        # which voxels in the mask have good qa values?
+        mask_data_good = mask_data >= 0
+        mask_data_bad = mask_data < 0
+        mask_data = None
+        
+        # summarize the number of good pixels in the stack for each
+        # line/sample; if there aren't any files for this year and
+        # season then just fill with zeros; write data as a byte
+        # since there won't be enough total files to go past 256
+        msg = '    Generating %d %s good looks using %d '  \
+            'files ...' % (year, season, n_files)
+        logIt (msg, self.log_handler)
+        if n_files > 0:
+            good_looks = apply_over_axes(sum, mask_data_good,  \
+                axes=[0])[0,:,:]
+        else:
+            good_looks = zeros((self.nrow, self.ncol), dtype=uint8)
+        
+        # save the good looks output to an ENVI file
+        good_looks_file = self.mask_dir + str(year) + '_' + season +  \
+            '_good_count.img'
+        
+        # write the good looks count to an output ENVI file as a
+        # byte product.  the noData value for this set will be 0 vs.
+        # the traditional nodata value of -9999, since we are working
+        # with a byte product.
+        driver = gdal.GetDriverByName('ENVI')
+        driver.Create (good_looks_file, self.ncol, self.nrow, 1,  \
+            gdalconst.GDT_Byte)
+        good_looks_dataset = gdal.Open (good_looks_file,  \
+            gdalconst.GA_Update)
+        if good_looks_dataset is None:
+            msg = 'Could not create output file: ' + good_looks_file
+            logIt (msg, self.log_handler)
+            return ERROR
+        
+        good_looks_dataset.SetGeoTransform(self.geotrans)
+        good_looks_dataset.SetProjection(self.prj)
+        
+        good_looks_band1 = good_looks_dataset.GetRasterBand(1)
+        good_looks_band1.SetNoDataValue(0)
+        good_looks_band1.WriteArray(good_looks)
+        
+        good_looks_band1 = None
+        good_looks_dataset = None
  
-            # create the bad data mask that will hold a stack of
-            # mask_data_bad for a single row for all the files
-            curr_mask_data_bad = zeros((n_files, self.ncol),
-                dtype=mask_data_bad.dtype)
+        # create the bad data mask that will hold a stack of
+        # mask_data_bad for a single row for all the files
+        curr_mask_data_bad = zeros((n_files, self.ncol),
+            dtype=mask_data_bad.dtype)
+        
+        # loop through bands and indices for which we want to generate
+        # summaries
+        for ind in ['band3', 'band4', 'band5', 'band7', 'ndvi', \
+            'ndmi', 'nbr', 'nbr2']:
+            msg = '    Generating %d %s summary for %s using %d '  \
+                'files ...' % (year, season, ind, n_files)
+            logIt (msg, self.log_handler)
             
-            # loop through bands and indices for which we want to generate
-            # summaries
-            for ind in ['band3', 'band4', 'band5', 'band7', 'ndvi', \
-                'ndmi', 'nbr', 'nbr2']:
-                msg = '    Generating %d %s summary for %s using %d '  \
-                    'files ...' % (year, season, ind, n_files)
-                logIt (msg, self.log_handler)
-                
-                # generate the directory name for the index stack
-                if (ind == 'ndvi'):
-                    dir_name = self.ndvi_dir
-                    ext = '_%s.img' % ind
-                elif (ind == 'ndmi'):
-                    dir_name = self.ndmi_dir
-                    ext = '_%s.img' % ind
-                elif (ind == 'nbr'):
-                    dir_name = self.nbr_dir
-                    ext = '_%s.img' % ind
-                elif (ind == 'nbr2'):
-                    dir_name = self.nbr2_dir
-                    ext = '_%s.img' % ind
-                else:   # refl file
-                    dir_name = self.refl_dir
-                    ext = '_sr_%s.img' % ind
+            # generate the directory name for the index stack
+            if (ind == 'ndvi'):
+                dir_name = self.ndvi_dir
+                ext = '_%s.img' % ind
+            elif (ind == 'ndmi'):
+                dir_name = self.ndmi_dir
+                ext = '_%s.img' % ind
+            elif (ind == 'nbr'):
+                dir_name = self.nbr_dir
+                ext = '_%s.img' % ind
+            elif (ind == 'nbr2'):
+                dir_name = self.nbr2_dir
+                ext = '_%s.img' % ind
+            else:   # refl file
+                dir_name = self.refl_dir
+                ext = '_sr_%s.img' % ind
     
-                # set up the season summaries file
-                temp_file = dir_name + str(year) + '_' + season + '_' +  \
-                    ind + '.img'
-                driver = gdal.GetDriverByName('ENVI')
-                driver.Create (temp_file, self.ncol, self.nrow, 1,  \
-                    gdalconst.GDT_Int16)
-                temp_out_dataset = gdal.Open (temp_file, gdalconst.GA_Update)
-                if temp_out_dataset is None:
-                    msg = 'Could not create output file: ' + temp_file
+            # set up the season summaries file
+            temp_file = dir_name + str(year) + '_' + season + '_' +  \
+                ind + '.img'
+            driver = gdal.GetDriverByName('ENVI')
+            driver.Create (temp_file, self.ncol, self.nrow, 1,  \
+                gdalconst.GDT_Int16)
+            temp_out_dataset = gdal.Open (temp_file, gdalconst.GA_Update)
+            if temp_out_dataset is None:
+                msg = 'Could not create output file: ' + temp_file
+                logIt (msg, self.log_handler)
+                return ERROR
+    
+            temp_out_dataset.SetGeoTransform(self.geotrans)
+            temp_out_dataset.SetProjection(self.prj)
+            temp_out = temp_out_dataset.GetRasterBand(1)
+            temp_out.SetNoDataValue(self.nodata)
+
+            # create the index/band datasets --stack of ncols
+            band_data = zeros((n_files, self.ncol), dtype=int16)
+            
+            # loop through the current set of files, open them, and
+            # attach to the proper band
+            input_ds = {}
+            temp_band = {}
+            for i in range(0, n_files):
+                base_file = os.path.basename(files[i]).replace('.xml', ext)
+                temp_file = '%s%s' % (dir_name, base_file)
+                my_ds = gdal.Open (temp_file, gdalconst.GA_ReadOnly)
+                if my_ds is None:
+                    msg = 'Could not open index/band file: ' + temp_file
                     logIt (msg, self.log_handler)
                     return ERROR
-    
-                temp_out_dataset.SetGeoTransform(self.geotrans)
-                temp_out_dataset.SetProjection(self.prj)
-                temp_out = temp_out_dataset.GetRasterBand(1)
-                temp_out.SetNoDataValue(self.nodata)
-
-                # create the index/band datasets --stack of ncols
-                band_data = zeros((n_files, self.ncol), dtype=int16)
+                input_ds[i] = my_ds
                 
-                # loop through the current set of files, open them, and
-                # attach to the proper band
-                input_ds = {}
-                temp_band = {}
+                # open the appropriate band in the input image
+                my_temp_band = my_ds.GetRasterBand(1)
+                if my_temp_band is None:
+                    msg = 'Could not open raster band for ' + ind
+                    logIt (msg, self.log_handler)
+                    return ERROR
+                temp_band[i] = my_temp_band
+
+            # loop through each line in the image and process
+            for y in range (0, self.nrow):
+#                print 'Line: %d' % y
+                # loop through the current set of files and process them
                 for i in range(0, n_files):
-                    base_file = os.path.basename(files[i]).replace('.xml', ext)
-                    temp_file = '%s%s' % (dir_name, base_file)
-                    my_ds = gdal.Open (temp_file, gdalconst.GA_ReadOnly)
-                    if my_ds is None:
-                        msg = 'Could not open index/band file: ' + temp_file
-                        logIt (msg, self.log_handler)
-                        return ERROR
-                    input_ds[i] = my_ds
-                    
-                    # open the appropriate band in the input image
-                    my_temp_band = my_ds.GetRasterBand(1)
-                    if my_temp_band is None:
-                        msg = 'Could not open raster band for ' + ind
-                        logIt (msg, self.log_handler)
-                        return ERROR
-                    temp_band[i] = my_temp_band
+#                    print '  Stacking file: ' + files[i]
+                    # read the current row of data
+                    my_temp_band = temp_band[i]
+                    band_data[i,:] = my_temp_band.ReadAsArray(0, y,  \
+                        self.ncol, 1)[0,]
 
-                # loop through each line in the image and process
-                for y in range (0, self.nrow):
-#                    print 'Line: %d' % y
-                    # loop through the current set of files and process them
-                    for i in range(0, n_files):
-#                        print '  Stacking file: ' + files[i]
-                        # read the current row of data
-                        my_temp_band = temp_band[i]
-                        band_data[i,:] = my_temp_band.ReadAsArray(0, y,  \
-                            self.ncol, 1)[0,]
-
-                        # stack up the current row of the bad data mask
-                        curr_mask_data_bad[i,:] = mask_data_bad[i,y,:]
+                    # stack up the current row of the bad data mask
+                    curr_mask_data_bad[i,:] = mask_data_bad[i,y,:]
+            
+                # summarize the good pixels in the stack for each
+                # line/sample
+                if n_files > 0:
+                    # replace bad QA values with zeros
+                    band_data[curr_mask_data_bad] = 0
                 
-                    # summarize the good pixels in the stack for each
-                    # line/sample
-                    if n_files > 0:
-                        # replace bad QA values with zeros
-                        band_data[curr_mask_data_bad] = 0
+                    # calculate totals within each voxel
+                    sum_data = apply_over_axes(sum, band_data,  \
+                        axes=[0])[0,]
                     
-                        # calculate totals within each voxel
-                        sum_data = apply_over_axes(sum, band_data,  \
-                            axes=[0])[0,]
-                        
-                        # divide by the number of good looks within a voxel
-                        mean_data = sum_data / good_looks[y,]
-                        
-                        # fill with nodata values in places where we would
-                        # have divide by zero errors
-                        mean_data[good_looks[y,]== 0] = self.nodata
-                    else:
-                       # create a line of nodata -- nrow=1 x ncols
-                        mean_data = zeros((self.ncol), dtype=uint16) +  \
-                            self.nodata
+                    # divide by the number of good looks within a voxel
+                    mean_data = sum_data / good_looks[y,]
+                    
+                    # fill with nodata values in places where we would
+                    # have divide by zero errors
+                    mean_data[good_looks[y,]== 0] = self.nodata
+                else:
+                   # create a line of nodata -- nrow=1 x ncols
+                    mean_data = zeros((self.ncol), dtype=uint16) +  \
+                        self.nodata
     
-                    # write the season summaries to a file
-                    mean_data_2d = reshape (mean_data, (1, len(mean_data)))
-                    temp_out.WriteArray(mean_data_2d, 0, y)
-                # end for y
+                # write the season summaries to a file
+                mean_data_2d = reshape (mean_data, (1, len(mean_data)))
+                temp_out.WriteArray(mean_data_2d, 0, y)
+            # end for y
     
-                # clean up the data for the current index
-                temp_out = None
-                temp_out_dataset = None
-                band_data = None
-                sum_data = None
-                mean_data = None
-                input_ds = None
-                temp_band = None
-            # end for ind
+            # clean up the data for the current index
+            temp_out = None
+            temp_out_dataset = None
+            band_data = None
+            sum_data = None
+            mean_data = None
+            input_ds = None
+            temp_band = None
+        # end for ind
  
-            # clean up the masked datasets for the current year and season
-            mask_data_good = None
-            mask_data_bad = None
-            good_looks = None
-        # end for season
+        # clean up the masked datasets for the current year and season
+        mask_data_good = None
+        mask_data_bad = None
+        good_looks = None
  
         return SUCCESS
 
@@ -1304,7 +1346,7 @@ class temporalBAStack():
 
     def processStack (self, input_dir=None, exclude_l1g=None,  \
         exclude_rmse=None, exclude_cloud_cover=None, logfile=None,  \
-        num_processors=1, usebin=None):
+        num_processors=1, delete_src=None):
         """Processes the temporal stack of data to generate seasonal summaries
            and annual maximums for each year in the stack.
         Description: processStack will process the temporal stack of data
@@ -1323,6 +1365,12 @@ class temporalBAStack():
               the common geographic extents.
           Updated on 2/18/2015 by Gail Schmidt, USGS/EROS LSRD Project
               Added support for excluding high RMSE and high cloud cover scenes.
+          Updated on 7/9/2015 by Gail Schmidt, USGS/EROS LSRD Project
+              Removed the --usebin argument.  The executables are expected to
+              be in the users PATH.
+              Added --delete_src argument.  If specified then the original
+              source scenes will be removed after each has been resampled to
+              the maximum geographic extents.
         
         Args:
           input_dir - name of the directory in which to find the surface
@@ -1342,9 +1390,9 @@ class temporalBAStack():
               the output will be written to stdout
           num_processors - how many processors should be used for parallel
               processing sections of the application
-          usebin - this specifies if the BA exes reside in the $BIN directory;
-              if None then the BA exes are expected to be in the PATH
-        
+          delete_src - if set to true then the source scenes will be deleted
+              after being resampled to the maximum geographic extents
+
         Returns:
             ERROR - error running the BA applications and script
             SUCCESS - successful processing
@@ -1367,53 +1415,55 @@ class temporalBAStack():
         startTime0 = time.time()
         if input_dir is None:
             # get the command line argument for the input parameters
-            parser = ArgumentParser(  \
-                description='Generate the seasonal summaries for the ' \
+            parser = ArgumentParser(
+                description='Generate the seasonal summaries for the '
                 'specified stack of data')
             parser.add_argument ('-f', '--input_dir', type=str,
                 dest='input_dir',
-                help='path to the input directory where the temporal stack '  \
-                    'of data resides and where the data will be processed '  \
-                    '(i.e. need read and write permissions to this '  \
+                help='path to the input directory where the temporal stack '
+                    'of data resides and where the data will be processed '
+                    '(i.e. need read and write permissions to this '
                     'directory)', metavar='DIR')
             parser.add_argument ('-l', '--logfile', type=str, dest='logfile',
                 help='name of optional log file', metavar='FILE')
             parser.add_argument ('-p', '--num_processors', type=int,
                 dest='num_processors',
-                help='how many processors should be used for parallel '  \
-                    'processing sections of the application '  \
+                help='how many processors should be used for parallel '
+                    'processing sections of the application '
                     '(default = 1, single threaded)')
-            parser.add_argument ('--usebin', dest='usebin', default=False,
-                action='store_true',
-                help='use BIN environment variable as the location of '  \
-                    'external burned area apps')
             parser.add_argument ('--exclude_l1g', dest='exclude_l1g',
                 default=False, action='store_true',
-                help='if True, then the L1G files are excluded from the '  \
-                     'temporal stack and only the L1T files are processed. ' \
-                     'These L1G files are also moved to a directory called ' \
+                help='if True, then the L1G files are excluded from the '
+                     'temporal stack and only the L1T files are processed. '
+                     'These L1G files are also moved to a directory called '
                      'exclude_l1g in the input directory.')
             parser.add_argument ('--exclude_rmse', dest='exclude_rmse',
                 default=False, action='store_true',
-                help='if True, then the high RMSE scenes are excluded from '  \
-                     'the temporal stack. These high RMSE files are also '  \
-                     'moved to a directory called exclude_rmse in the input '  \
+                help='if True, then the high RMSE scenes are excluded from '
+                     'the temporal stack. These high RMSE files are also '
+                     'moved to a directory called exclude_rmse in the input '
                      'directory.')
             parser.add_argument ('--exclude_cloud_cover',
                 dest='exclude_cloud_cover', default=False, action='store_true',
-                help='if True, then the high cloud cover scenes are excluded ' \
-                     'from the temporal stack. These high cloud cover files ' \
-                     'are also moved to a directory called '  \
+                help='if True, then the high cloud cover scenes are excluded '
+                     'from the temporal stack. These high cloud cover files '
+                     'are also moved to a directory called '
                      'exclude_cloud_cover in the input directory.')
+            parser.add_argument ('--delete_src',
+                dest='delete_src', default=False, action='store_true',
+                help='if True, the source files will be deleted after each '
+                     'scene has been resampled to the maximum geographic '
+                     'extents. The MTL and XML file will remain for downstream '
+                     'processing.')
 
             options = parser.parse_args()
     
             # validate the command-line options
             logfile = options.logfile
-            usebin = options.usebin
             exclude_l1g = options.exclude_l1g
             exclude_rmse = options.exclude_rmse
             exclude_cloud_cover = options.exclude_cloud_cover
+            self.delete_src = options.delete_src
 
             # input directory
             input_dir = options.input_dir
@@ -1426,6 +1476,7 @@ class temporalBAStack():
                 self.num_processors = options.num_processors
         else:
             self.num_processors = num_processors
+            self.delete_src = delete_src
 
         # open the log file if it exists; use line buffering for the output
         self.log_handler = None
@@ -1441,24 +1492,6 @@ class temporalBAStack():
         if input_dir[len(input_dir)-1] != '/':
             input_dir = input_dir + '/'
 
-        # should we expect the external applications to be in the PATH or in
-        # the BIN directory?
-        if usebin:
-            # get the BIN dir environment variable
-            bin_dir = os.environ.get('BIN')
-            if bin_dir is None:
-                msg = 'ERROR: BIN environment variable not defined'
-                logIt (msg, self.log_handler)
-                return ERROR
-            bin_dir = bin_dir + '/'
-            msg = 'BIN environment variable: ' + bin_dir
-            logIt (msg, self.log_handler)
-        else:
-            # don't use a path to the external applications
-            bin_dir = ""
-            msg = 'External burned area executables expected to be in the PATH'
-            logIt (msg, self.log_handler)
-        
         # make sure the input directory exists and is writable
         self.input_dir = input_dir
         if not os.path.exists(input_dir):
@@ -1506,8 +1539,8 @@ class temporalBAStack():
         # files.  exit if any errors occur.
         logIt (msg, self.log_handler)
         stack_file = "input_stack.csv"
-        cmdstr = '%sgenerate_stack --list_file=%s --stack_file=%s ' \
-            '--verbose' % (bin_dir, list_file, stack_file)
+        cmdstr = 'generate_stack --list_file=%s --stack_file=%s ' \
+            '--verbose' % (list_file, stack_file)
         cmdlist = cmdstr.split(' ')
         try:
             output = subprocess.check_output (cmdlist, stderr=None)
@@ -1522,8 +1555,8 @@ class temporalBAStack():
         # run the executable to determine the maximum bounding extent of
         # the temporal stack of products.  exit if any errors occur.
         bounding_box_file = 'bounding_box_coordinates.csv'
-        cmdstr = '%sdetermine_max_extent --list_file=%s --extent_file=%s ' \
-            '--verbose' % (bin_dir, list_file, bounding_box_file)
+        cmdstr = 'determine_max_extent --list_file=%s --extent_file=%s ' \
+            '--verbose' % (list_file, bounding_box_file)
         cmdlist = cmdstr.split(' ')
         try:
             output = subprocess.check_output (cmdlist, stderr=None)
@@ -1537,6 +1570,10 @@ class temporalBAStack():
 
         # resample the files to the maximum bounding extent of the stack
         # and calculate the spectral indices
+        if self.delete_src:
+            msg = 'Original source scenes will be deleted after resampling.'
+            logIt (msg, self.log_handler)
+
         status = self.resampleStack (bounding_box_file, stack_file)
         if status != SUCCESS:
             msg = 'Error resampling the list of files to the max bounding ' \
@@ -1569,18 +1606,20 @@ class temporalBAStack():
         for elem in range (0, len(header_row)):
             header_row[elem] = header_row[elem].strip()
 
-        # clean up the temporary maximum extent files that were created as
-        # part of this processing
-#        cleanup_dirs = [self.refl_dir, self.ndvi_dir, self.ndmi_dir,
-#            self.nbr_dir, self.nbr2_dir, self.mask_dir]
-#        for scene in enumerate (stack):
-#            for mydir in cleanup_dirs:
-#                full_xml_file = scene[1][header_row.index('file')]
-#                xml_file = os.path.basename (full_xml_file.replace ('.xml', ''))
-#                rm_files = glob.glob (mydir + xml_file + '*')
-#                for file in rm_files:
-#                    print 'Remove: ' + file
-#                    os.remove (os.path.join (file))
+        # clean up the index files that were created as part of this processing
+        # to generate the annual and seasonal files.  they will not be used
+        # downstream.  the reflectance and mask files will still be needed
+        # in boosted regression.
+        cleanup_dirs = [self.ndvi_dir, self.ndmi_dir, self.nbr_dir,
+             self.nbr2_dir]
+        for scene in enumerate (stack):
+            for mydir in cleanup_dirs:
+                full_xml_file = scene[1][header_row.index('file')]
+                xml_file = os.path.basename (full_xml_file.replace ('.xml', ''))
+                rm_files = glob.glob (mydir + xml_file + '*')
+                for file in rm_files:
+                    print 'Remove: ' + file
+                    os.remove (os.path.join (file))
 
         # close the stack file
         stack = None

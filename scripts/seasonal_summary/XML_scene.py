@@ -21,6 +21,9 @@ from log_it import *
 #   Updated on 3/26/2014 by Gail Schmidt, USGS/EROS
 #       Removed metadata reads from the old HDF files that were not being
 #       used
+#   Updated on 7/8/2015 by Gail Schmidt, USGS/EROS LSRD Project
+#       Thermal band is not used in burned area processing.
+#
 ############################################################################
 class XML_Scene:
     """Class for handling ESPA scene related functions.
@@ -43,7 +46,6 @@ class XML_Scene:
     dataset3 = None
     dataset4 = None
     dataset5 = None
-    dataset6 = None
     dataset7 = None 
     dataset_fill_QA = None
     dataset_cloud_QA = None
@@ -58,7 +60,6 @@ class XML_Scene:
     band3 = None
     band4 = None
     band5 = None
-    band6 = None
     band7 = None
     band_fill_QA = None
     band_cloud_QA = None
@@ -99,7 +100,6 @@ class XML_Scene:
         self.band_dict['band3'] = xml_file.replace ('.xml', '_sr_band3.img')
         self.band_dict['band4'] = xml_file.replace ('.xml', '_sr_band4.img')
         self.band_dict['band5'] = xml_file.replace ('.xml', '_sr_band5.img')
-        self.band_dict['band6'] = xml_file.replace ('.xml', '_toa_band6.img')
         self.band_dict['band7'] = xml_file.replace ('.xml', '_sr_band7.img')
         self.band_dict['band_fill'] = xml_file.replace ('.xml', \
             '_sr_fill_qa.img')
@@ -143,12 +143,6 @@ class XML_Scene:
         self.dataset5 = gdal.Open(self.band_dict['band5'])
         if self.dataset5 is None:
             msg = 'GDAL could not open input file: ' + self.band_dict['band5']
-            logIt (msg, log_handler)
-            return None
-
-        self.dataset6 = gdal.Open(self.band_dict['band6'])
-        if self.dataset6 is None:
-            msg = 'GDAL could not open input file: ' + self.band_dict['band6']
             logIt (msg, log_handler)
             return None
 
@@ -207,7 +201,6 @@ class XML_Scene:
         self.band3 = self.dataset3.GetRasterBand(1)
         self.band4 = self.dataset4.GetRasterBand(1)
         self.band5 = self.dataset5.GetRasterBand(1)
-        self.band6 = self.dataset6.GetRasterBand(1)
         self.band7 = self.dataset7.GetRasterBand(1)
         self.band_fill_QA = self.dataset_fill_QA.GetRasterBand(1)
         self.band_cloud_QA = self.dataset_cloud_QA.GetRasterBand(1)
@@ -236,10 +229,6 @@ class XML_Scene:
             return None
         if self.band5 is None:
             msg = 'Input band5 connection failed'
-            logIt (msg, log_handler)
-            return None
-        if self.band6 is None:
-            msg = 'Input band6 connection failed'
             logIt (msg, log_handler)
             return None
         if self.band7 is None:
@@ -308,7 +297,6 @@ class XML_Scene:
         self.dataset3 = None
         self.dataset4 = None
         self.dataset5 = None
-        self.dataset6 = None
         self.dataset7 = None
         self.dataset_fill_QA = None
         self.dataset_cloud_QA = None
@@ -322,7 +310,6 @@ class XML_Scene:
         self.band3 = None
         self.band4 = None
         self.band5 = None
-        self.band6 = None
         self.band7 = None
         self.band_fill_QA = None
         self.band_cloud_QA = None
@@ -398,7 +385,7 @@ class XML_Scene:
             None - if pixel location does not fall within the coordinates of
                 this scene
             pixel stack - stack of values for the x,y location as band1, band2,
-                band3, band4, band5, band6, band7, and QA band
+                band3, band4, band5, band7, and QA band
         """
 
         if (x < self.EastBoundingCoordinate) and  \
@@ -416,7 +403,6 @@ class XML_Scene:
             x3 = self.band3.ReadAsArray(ij[0], ij[1], 1, 1)[0,0]
             x4 = self.band4.ReadAsArray(ij[0], ij[1], 1, 1)[0,0]
             x5 = self.band5.ReadAsArray(ij[0], ij[1], 1, 1)[0,0]
-            x6 = self.band6.ReadAsArray(ij[0], ij[1], 1, 1)[0,0]
             x7 = self.band7.ReadAsArray(ij[0], ij[1], 1, 1)[0,0]
 
             fill_QA = self.band_fill_QA.ReadAsArray(ij[0], ij[1], 1, 1)[0,0]
@@ -445,7 +431,7 @@ class XML_Scene:
                 QA = -9999
                 
             return( {'band1':x1, 'band2':x2, 'band3':x3, 'band4':x4, \
-                'band5':x5, 'band6':x6, 'band7':x7, 'QA':QA} )
+                'band5':x5, 'band7':x7, 'QA':QA} )
         else:
             return (None)
 
@@ -476,7 +462,7 @@ class XML_Scene:
             None - if pixel location does not fall within the coordinates of
                 this scene
             Array - associated line of data y location as band1, band2,
-                band3, band4, band5, band6, band7, and QA band
+                band3, band4, band5, band7, and QA band
         """
 
         if (y < self.NorthBoundingCoordinate) and  \
@@ -492,7 +478,6 @@ class XML_Scene:
             x3 = self.band3.ReadAsArray(0, ij[1], self.NCol, 1)[0,]
             x4 = self.band4.ReadAsArray(0, ij[1], self.NCol, 1)[0,]
             x5 = self.band5.ReadAsArray(0, ij[1], self.NCol, 1)[0,]
-            x6 = self.band6.ReadAsArray(0, ij[1], self.NCol, 1)[0,]
             x7 = self.band7.ReadAsArray(0, ij[1], self.NCol, 1)[0,]
             
             fill_QA = self.band_fill_QA.ReadAsArray(0, ij[1], self.NCol, 1)[0,]
@@ -517,7 +502,7 @@ class XML_Scene:
             QA[fill_QA > 0] = -9999  # fill
 
             return( {'band1':x1, 'band2':x2, 'band3':x3, 'band4':x4,  \
-                'band5':x5, 'band6':x6, 'band7':x7, 'QA':QA } )
+                'band5':x5, 'band7':x7, 'QA':QA } )
         else:
             return (None)
 
@@ -545,7 +530,7 @@ class XML_Scene:
             None - if pixel location does not fall within the coordinates of
                 this scene
             Array - associated line of data y location as band1, band2,
-                band3, band4, band5, band6, band7, and QA band
+                band3, band4, band5, band7, and QA band
         """
 
         # read the line from each of the bands in the scene, including
@@ -555,7 +540,6 @@ class XML_Scene:
         x3 = self.band3.ReadAsArray(0, j, self.NCol, 1)[0,]
         x4 = self.band4.ReadAsArray(0, j, self.NCol, 1)[0,]
         x5 = self.band5.ReadAsArray(0, j, self.NCol, 1)[0,]
-        x6 = self.band6.ReadAsArray(0, j, self.NCol, 1)[0,]
         x7 = self.band7.ReadAsArray(0, j, self.NCol, 1)[0,]
         
         fill_QA = self.band_fill_QA.ReadAsArray(0, j, self.NCol, 1)[0,]
@@ -579,7 +563,7 @@ class XML_Scene:
         QA[fill_QA > 0] = -9999  # fill
 
         return( {'band1':x1, 'band2':x2, 'band3':x3, 'band4':x4,  \
-            'band5':x5, 'band6':x6, 'band7':x7, 'QA':QA } )
+            'band5':x5, 'band7':x7, 'QA':QA } )
 
 
     def getBandValues(self, band, log_handler=None):
@@ -599,7 +583,7 @@ class XML_Scene:
         
         Args:
           band - string representing which band to read (band1, band2, band3,
-                 band4, band5, band6, band7, band_qa)
+                 band4, band5, band7, band_qa)
           log_handler - open log file for logging or None for stdout
         
         Returns:
@@ -609,9 +593,9 @@ class XML_Scene:
         """
 
         if not (band in ['band1', 'band2', 'band3', 'band4', 'band5', \
-            'band6', 'band7', 'band_qa']):
+            'band7', 'band_qa']):
             print 'Band ' + band + 'is not supported. Needs to be one of ' \
-                'band1, band2, band3, band4, band5, band6, band7, or band_qa.'
+                'band1, band2, band3, band4, band5, band7, or band_qa.'
             return None
 
         # read and return the specified band
@@ -629,9 +613,6 @@ class XML_Scene:
 
         elif band == 'band5':
             return (self.band5.ReadAsArray())
-
-        elif band == 'band6':
-            return (self.band6.ReadAsArray())
 
         elif band == 'band7':
             return (self.band7.ReadAsArray())
