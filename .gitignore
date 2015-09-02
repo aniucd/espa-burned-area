@@ -19,3 +19,9 @@
 *.rar
 *.tar
 *.zip
+
+# Specific executables #
+########################
+src/boosted_regression_tree/predict_burned_area
+src/seasonal_summary/determine_max_extent
+src/seasonal_summary/generate_stack
