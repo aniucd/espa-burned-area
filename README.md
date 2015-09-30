@@ -1,5 +1,5 @@
-## Burned-Area Version 2.1.0 Release Notes
-Release Date: May 27, 2015
+## Burned-Area Version 2.2.0 Release Notes
+Release Date: Dec. ??, 2015
 
 The burned area project contains application source code for producing burned area products.  The Burned Area (BA) Essential Climate Variable (ECV) is a set of procedures for detecting terrestrial burned areas from Landsat TM and ETM+ data.
 
@@ -10,7 +10,7 @@ Burned Area source code
 
     git clone https://github.com/USGS-EROS/espa-burned-area.git
 
-See git tag [version_2.1.0]
+See git tag [version_2.2.0]
 
 ### Installation
   * Install dependent libraries - ESPA product formatter (https://github.com/USGS-EROS/espa-product-formatter), Boost, and OpenCV.
