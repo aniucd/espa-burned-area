@@ -35,7 +35,8 @@ typedef struct
     int nsamps;                /* number of samples in the dataset */
     float pixel_size[2];       /* pixel size (x, y) */
     int utm_zone;              /* UTM zone; use a negative number if this is a
-                                  southern zone */
+                                  southern zone (value is not valid if
+                                  processing non-UTM scenes) */
 } Ba_scene_meta_t;
 
 /* Prototypes */
