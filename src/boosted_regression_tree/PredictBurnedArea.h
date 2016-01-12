@@ -35,7 +35,7 @@ NOTES:
 
 using namespace std;
 
-#define BA_VERSION "2.1.0"
+#define BA_VERSION "2.3.0"
 
 /* Type definitions */
 typedef enum {WINTER=0, SPRING, SUMMER, FALL, PBA_NSEASONS} Season_t;
