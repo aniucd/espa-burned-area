@@ -5,7 +5,7 @@
 # Set up compile options
 CC = gcc
 RM = rm -f
-EXTRA = -Wall -g -O2
+EXTRA = -Wall -O2
 
 # Define the include files
 INC1 = determine_max_extent.h
