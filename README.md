@@ -1,5 +1,5 @@
 ## Burned-Area Version 2.3.0 Release Notes
-Release Date: March 23, 2016
+Release Date: March 2016
 
 The burned area project contains application source code for producing burned area products.  The Burned Area (BA) Essential Climate Variable (ECV) is a set of procedures for detecting terrestrial burned areas from Landsat TM and ETM+ data.
 
@@ -68,7 +68,6 @@ The do\_burned\_area.py script runs the overall end-to-end processing given a st
 
 ### Product Guide
 
-## Changes From Previous Version
-#### Updates on March 23, 2016 - USGS EROS
+## Release Notes
   * burned-area
     1. Updated to support Albers products in addition to the current UTM projection.  The stack file stores the UTM zone, which will be non-valid for other projections.
